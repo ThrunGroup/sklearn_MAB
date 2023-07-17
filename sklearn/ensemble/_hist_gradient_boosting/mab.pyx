@@ -1724,30 +1724,29 @@ cdef inline Y_DTYPE_C _loss_from_value(
 
 class CandidateContainer:
     def __init__(self, node):
+        n_bins = node.histograms.shape[1] 
         self.n_features = node.histograms.shape[0]
-        n_bins = node.histograms.shape[1] #TODO: get from
         self.n_valid_bins = np.zeros((n_features)) + n_bins
+        self.valid_features = np.arange((self.n_features))
 
+        self.candidate_stats = np.zeros((n_features, n_bins, 2)) # (mean, confidence_bound) pair array of size (n_features, n_bins)
+        self.n_candidates = n_features * n_bins # works where missing doesn't exist
+        self.best_candidate = self.find_min_candidate(is_upper=True) # best candidate's (fidx, bidx)
 
-        self.candidate_stats = np.zeros((n_features, n_bins, 2)) #(mean, confidence_bound) pair array of size (n_features, n_bins)
-        self.n_candidates = n_features * n_bins #works where missing doesn't exist
-
-        self.best_candidate = self.find_min_upper_bound() #best candidate's (fidx, bidx)
-
-    def update_stats(self, stats):
-        pass
-        #TODO:implement
-
-    def find_min_upper_bound(self):
+    def find_min_candidate(self, is_upper=False):
+        ci = 0
         min_fidx = 0
         min_bidx = 0
-        curr_best = self.candidate_stats[0, 0, 0] + self.candidate_stats[0, 0, 1]
+        best = self.candidate_stats[0, 0, 0] + self.candidate_stats[0, 0, 1]
 
-        for fidx in range(self.n_features):
+        for i in range(self.n_features):
+            fidx = self.valid_features[i]
             for bidx in range(self.n_valid_bins[fidx]):
-                upper_bound = self.candidate_stats[fidx, bidx, 0] + self.candidate_stats[fidx, bidx, 1]
+                if is_upper: 
+                    ci = self.candidate_stats[fidx, bidx, 1]
+                curr = self.candidate_stats[fidx, bidx, 0] + ci
 
-                if upper_bound < curr_best:
+                if curr < best:
                     min_fidx = fidx
                     min_bidx = bidx
 
@@ -1755,18 +1754,23 @@ class CandidateContainer:
 
 
     def filter_candidates(self):
-        for fidx in range(self.n_features):
-            for bidx in range(self.n_valid_bins[fidx] - 1, -1, -1):
-                estimate = self.candidate_stats[fidx, bidx, 0] - self.candidate_stats[fidx, bidx, 1]
+        min_upper_bound = self.candidate_stats[best_candidate, 0] + self.candidate_stats[best_candidate, 1]
 
-                if estimate >= self.threshold:
+        for i in range(self.n_features - 1, -1, -1):
+            fidx = self.valid_features[i]
+            for bidx in range(self.n_valid_bins[fidx] - 1, -1, -1):
+                lower_bound = self.candidate_stats[fidx, bidx, 0] - self.candidate_stats[fidx, bidx, 1]
+
+                # arm gets eliminated
+                if lower_bound >= min_upper_bound: 
                     self.n_valid_bins[fidx] -= 1
                     self.n_candidates -= 1
-                    if self.n_valid_bins[fidx] == 0:
-                        pass
-                        #TODO: drop feature from candidate(how?)
 
-                    self.candidate_stats[fidx, bidx] = self.candidate_stats[fidx, self.n_valid_bins[fidx]]
+                    if self.n_valid_bins[fidx] == 0:
+                        self.n_features -= 1
+                        self.valid_features[i] = self.valid_features[self.n_features]
+                    else:
+                        self.candidate_stats[fidx, bidx] = self.candidate_stats[fidx, self.n_valid_bins[fidx]]
 
     def update_filter_candidates(self):
         self.best_candidate = self.find_min_upper_bound()
