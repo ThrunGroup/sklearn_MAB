@@ -1077,16 +1077,43 @@ class TreeGrower:
         )
         """
 
-        CandidateContainer candidates
+        candidates = CandidateContainer(node)
 
         while candidates.n_candidates > n_epsilon_candidates and node.n_used_samples < node.n_samples:
+            loss_current_node = _loss_from_value(node.value, node.sum_gradients)
+
             #mean update
-            #TODO: for each candidate in candidates, update mean using _split_gain
+            for i in range(candidiates.n_features):
+                fidx = candidates.valid_features[i]
+
+                sum_gradient_left, sum_hessian_left = 0., 0.
+                n_samples_left = 0
+
+                for bidx in range(candidates.n_valid_bins[fidx] - 1):
+                    n_samples_left += node.histograms[fidx, bidx].count
+                    sum_gradient_left += node.histograms[fidx, bidx].gradient
+
+                    if self.hessians_are_constant:
+                        sum_hessian_left += node.histograms[feature_idx, bin_idx].count
+                    else:
+                        sum_hessian_left += \
+                            node.histograms[fidx, bidx].hessian
+                        sum_hessian_right = node.sum_hessians - sum_hessian_left
+
+                    n_samples_right = node.n_used_samples - n_samples_left
+                    sum_gradient_right = node.sum_gradients - sum_gradient_right
+
+                    candidates.candidate_stats[fidx, bidx, 0] = _split_gain(sum_gradient_left, sum_hessian_left,
+                                                                            sum_gradient_right, sum_hessian_right,
+                                                                            loss_current_node,
+                                                                            self.monotonic_cst,
+                                                                            node.children_lower_bound,
+                                                                            node.children_upper_bound,
+                                                                            self.l2_regularization)
+
 
             #update confidence bound
             #TODO: for each candidate in candidates, update confidence bound
-
-            #update candidates' stats (candidates.set_stats())
 
             candidates.update_filter_candidates()
 
